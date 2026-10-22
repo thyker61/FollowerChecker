@@ -1,12 +1,8 @@
 package com.thyker.followerchecker
 
-import android.annotation.SuppressLint
+import android.content.Intent
 import android.os.Bundle
-import android.webkit.CookieManager
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
 
 data class XUser(
     val id: String,
@@ -45,47 +41,7 @@ enum class SortMode(val title: String) {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        CookieManager.getInstance().setAcceptCookie(true)
         setContent { MaterialTheme { FollowerCheckerApp() } }
-    }
-}
-
-private fun hasXSession(): Boolean {
-    val cookies = CookieManager.getInstance().getCookie("https://x.com") ?: return false
-    return cookies.split(';').any { it.trim().startsWith("auth_token=") }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun XLoginScreen(onClose: () -> Unit, onLoggedIn: () -> Unit) {
-    BackHandler { onClose() }
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("X ile giriş") },
-            navigationIcon = { TextButton(onClick = onClose) { Text("Geri") } }
-        )
-    }) { padding ->
-        AndroidView(
-            modifier = Modifier.padding(padding).fillMaxSize(),
-            factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            super.onPageFinished(view, url)
-                            if (hasXSession()) {
-                                CookieManager.getInstance().flush()
-                                onLoggedIn()
-                            }
-                        }
-                    }
-                    loadUrl("https://x.com/i/flow/login")
-                }
-            }
-        )
     }
 }
 
@@ -94,8 +50,6 @@ private fun XLoginScreen(onClose: () -> Unit, onLoggedIn: () -> Unit) {
 fun FollowerCheckerApp() {
     val context = LocalContext.current
     val snapshotStore = remember { SnapshotStore(context.applicationContext) }
-    var showLogin by remember { mutableStateOf(false) }
-    var connected by remember { mutableStateOf(hasXSession()) }
     var filter by remember { mutableStateOf(Filter.NOT_FOLLOWING_ME) }
     var sortMode by remember { mutableStateOf(SortMode.ACTIVE) }
     var search by remember { mutableStateOf("") }
@@ -124,14 +78,6 @@ fun FollowerCheckerApp() {
                     importStatus = "Arşiv okunamadı: ${error.message ?: "bilinmeyen hata"}"
                 }
         }
-    }
-
-    if (showLogin) {
-        XLoginScreen(
-            onClose = { showLogin = false },
-            onLoggedIn = { connected = true; showLogin = false }
-        )
-        return
     }
 
     val followerIds = followers.map { it.id }.toSet()
@@ -182,9 +128,15 @@ fun FollowerCheckerApp() {
             ) { Text("X Arşivini Seç") }
             Text(importStatus, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = { showLogin = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (connected) "X Oturumunu Aç" else "X Hesabını Aç (isteğe bağlı)")
-            }
+            OutlinedButton(
+                onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, "https://x.com/i/flow/login".toUri()))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("X Oturumunu Tarayıcıda Aç") }
+            Text("X giriş sayfası artık uygulama içi WebView yerine telefonundaki tarayıcıda açılır.", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(search, { search = it }, label = { Text("Kullanıcı ara") }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))

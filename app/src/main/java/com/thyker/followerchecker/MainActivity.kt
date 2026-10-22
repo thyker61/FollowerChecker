@@ -52,6 +52,7 @@ private fun hasXSession(): Boolean {
     return cookies.split(';').any { it.trim().startsWith("auth_token=") }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun XLoginScreen(onClose: () -> Unit, onLoggedIn: () -> Unit) {

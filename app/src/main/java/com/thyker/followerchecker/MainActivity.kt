@@ -1,7 +1,12 @@
 package com.thyker.followerchecker
 
+import android.annotation.SuppressLint
 import android.os.Bundle
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 
 data class XUser(
     val id: String,
@@ -36,19 +42,68 @@ enum class SortMode(val title: String) {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CookieManager.getInstance().setAcceptCookie(true)
         setContent { MaterialTheme { FollowerCheckerApp() } }
+    }
+}
+
+private fun hasXSession(): Boolean {
+    val cookies = CookieManager.getInstance().getCookie("https://x.com") ?: return false
+    return cookies.split(';').any { it.trim().startsWith("auth_token=") }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun XLoginScreen(onClose: () -> Unit, onLoggedIn: () -> Unit) {
+    BackHandler { onClose() }
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text("X ile giriş") },
+            navigationIcon = { TextButton(onClick = onClose) { Text("Geri") } }
+        )
+    }) { padding ->
+        AndroidView(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            factory = { context ->
+                WebView(context).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            if (hasXSession()) {
+                                CookieManager.getInstance().flush()
+                                onLoggedIn()
+                            }
+                        }
+                    }
+                    loadUrl("https://x.com/i/flow/login")
+                }
+            }
+        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FollowerCheckerApp() {
+    var showLogin by remember { mutableStateOf(false) }
+    var connected by remember { mutableStateOf(hasXSession()) }
     var filter by remember { mutableStateOf(Filter.NOT_FOLLOWING_ME) }
     var sortMode by remember { mutableStateOf(SortMode.ACTIVE) }
     var search by remember { mutableStateOf("") }
     var sortMenu by remember { mutableStateOf(false) }
     val followers = remember { mutableStateListOf<XUser>() }
     val following = remember { mutableStateListOf<XUser>() }
+
+    if (showLogin) {
+        XLoginScreen(
+            onClose = { showLogin = false },
+            onLoggedIn = { connected = true; showLogin = false }
+        )
+        return
+    }
 
     val followerIds = followers.map { it.id }.toSet()
     val followingIds = following.map { it.id }.toSet()
@@ -89,9 +144,18 @@ fun FollowerCheckerApp() {
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
             Text("X takipçi kontrolü", style = MaterialTheme.typography.titleMedium)
+            Text(if (connected) "X oturumu bağlı" else "X hesabı bağlı değil")
             Text("Takipçi: ${followers.size}   Takip edilen: ${following.size}")
             Spacer(Modifier.height(12.dp))
-            Button(onClick = { }, modifier = Modifier.fillMaxWidth()) { Text("X Hesabını Bağla") }
+            Button(onClick = { showLogin = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (connected) "X Oturumunu Aç" else "X Hesabını Bağla")
+            }
+            if (connected) {
+                Text(
+                    "Giriş tamamlandı. Takipçi verilerini çekme modülü sıradaki aşamada bağlanacak.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(search, { search = it }, label = { Text("Kullanıcı ara") }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
